@@ -56,6 +56,27 @@ export interface Status {
   block_time?: number;
 }
 
+export interface Utxo {
+  txid: string,
+  vout: number,
+  value: number,
+  confirmed: boolean,
+}
+
+export interface AddressState {
+  transactions: Transaction[];
+  balance: {
+    total: number;
+    confirmed: number;
+    mempool: number;
+  };
+  utxos: Utxo[];
+}
+
+export interface WalletState extends AddressState {
+  addresses: { [address: string]: AddressState };
+}
+
 export interface AddressTransactionsResponse {
   [address: string]: {
     mempool: Transaction[];

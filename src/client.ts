@@ -1,13 +1,14 @@
 import { MempoolApi } from './api';
 import { AddressTxEvent, MempoolSocket } from './websocket';
-import { MempoolOptions, Transaction } from './interfaces';
+import { MempoolOptions, Transaction, AddressState, Utxo, WalletState } from './interfaces';
+import { AddressTracker } from './address';
 
 type AddressEvent = 'added' | 'confirmed' | 'removed' | 'changed';
 
 export class MempoolClient {
   private api: MempoolApi;
   private ws: MempoolSocket;
-  private tracking: { [key: string]: Map<string, Transaction> } = {};
+  private tracking: { [key: string]: AddressTracker } = {};
 
   private observerId = 0;
   private observers: {
@@ -24,9 +25,9 @@ export class MempoolClient {
   constructor(options: MempoolOptions) {
     this.api = new MempoolApi(options);
     this.ws = new MempoolSocket(options);
-    this.ws.on(AddressTxEvent.mempool, (address, tx) => { this.onTransactionUnconfirmed(address, tx); });
-    this.ws.on(AddressTxEvent.confirmed, (address, tx) => { this.onTransactionConfirmed(address, tx); });
-    this.ws.on(AddressTxEvent.removed, (address, tx) => { this.onTransactionRemoved(address, tx); });
+    this.ws.on(AddressTxEvent.mempool, (address, tx) => { this.onTransactionUnconfirmed(address, tx, true); });
+    this.ws.on(AddressTxEvent.confirmed, (address, tx) => { this.onTransactionConfirmed(address, tx, true); });
+    this.ws.on(AddressTxEvent.removed, (address, tx) => { this.onTransactionRemoved(address, tx, true); });
   }
 
   public destroy(): void {
@@ -35,31 +36,32 @@ export class MempoolClient {
     this.ws.off(AddressTxEvent.removed);
   }
 
-  private onTransactionUnconfirmed(address: string, tx: Transaction): void {
+  private onTransactionUnconfirmed(address: string, tx: Transaction, live: boolean = false): void {
     if (address in this.tracking) {
+      this.tracking[address].addTransaction(tx, live);
       Object.values(this.observers.added).forEach(observer => observer({address, tx}));
       Object.values(this.observers.changed).forEach(observer => observer({event: 'added', address, tx}));
-      this.tracking[address].set(tx.txid, tx);
     }
   }
 
-  private onTransactionConfirmed(address: string, tx: Transaction): void {
+  private onTransactionConfirmed(address: string, tx: Transaction, live: boolean = false): void {
     if (address in this.tracking) {
-      if (!this.tracking[address].has(tx.txid)) {
+      const isKnown = this.tracking[address].hasTransaction(tx.txid);
+      this.tracking[address].addTransaction(tx, live);
+      if (!isKnown) {
         Object.values(this.observers.added).forEach(observer => observer({address, tx}));
         Object.values(this.observers.changed).forEach(observer => observer({event: 'added', address, tx}));
       }
       Object.values(this.observers.confirmed).forEach(observer => observer({address, tx}));
       Object.values(this.observers.changed).forEach(observer => observer({event: 'confirmed', address, tx}));
-      this.tracking[address].set(tx.txid, tx);
     }
   }
 
-  private onTransactionRemoved(address: string, tx: Transaction): void {
+  private onTransactionRemoved(address: string, tx: Transaction, live: boolean = false): void {
     if (address in this.tracking) {
       Object.values(this.observers.removed).forEach(observer => observer({address, tx}));
       Object.values(this.observers.changed).forEach(observer => observer({event: 'removed', address, tx}));
-      this.tracking[address].delete(tx.txid);
+      this.tracking[address].removeTransaction(tx.txid, live);
     }
   }
 
@@ -71,26 +73,51 @@ export class MempoolClient {
     return () => { delete this.observers[event][oid]; };
   }
 
-  public getTransactions(address: string): Transaction[] {
-    return Array.from(this.tracking[address].values());
+  public getAddressState(address: string): AddressState | null {
+    if (this.tracking[address]) {
+      return this.tracking[address].getState();
+    } else {
+      return null;
+    }
   }
 
-  public getWalletState(): { [key: string]: Transaction[] } {
-    const addresses: { [address: string]: Transaction[] } = {};
+  public getWalletState(): WalletState {
+    const addresses: { [address: string]: AddressState } = {};
+    const transactions = new Map();
+    const balance = {
+      total: 0,
+      confirmed: 0,
+      mempool: 0,
+    };
+    let utxos: Utxo[] = [];
     Object.keys(this.tracking).forEach(address => {
-      addresses[address] = Array.from(this.tracking[address].values());
+      if (this.tracking[address]) {
+        const addressState = this.tracking[address].getState();
+        addresses[address] = addressState;
+        balance.total += addressState.balance.total;
+        balance.confirmed += addressState.balance.confirmed;
+        balance.mempool += addressState.balance.mempool;
+        for (const tx of addressState.transactions) {
+          transactions.set(tx.txid, tx);
+        }
+        utxos = utxos.concat(addressState.utxos);
+      }
     })
-    return addresses;
+    return {
+      addresses,
+      balance,
+      transactions: Array.from(transactions.values()),
+      utxos,
+    };
   }
 
   public async trackAddresses(addresses: string[]): Promise<void> {
-    console.log('starting to track addresses ', addresses)
     addresses = addresses.filter(address => !(address in this.tracking));
     if (!addresses.length) {
       return;
     }
     for (const address of addresses) {
-      this.tracking[address] = new Map();
+      this.tracking[address] = new AddressTracker(address);
     }
     this.ws.trackAddresses(Object.keys(this.tracking));
     for (const address of addresses) {
@@ -102,6 +129,7 @@ export class MempoolClient {
           this.onTransactionUnconfirmed(address, tx);
         }
       }
+      this.tracking[address].onApiLoaded();
     }
   }
 

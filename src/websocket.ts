@@ -120,7 +120,7 @@ export class MempoolSocket {
     for (const [address, events] of Object.entries(addressTransactions)) {
       for (const event in AddressTxEvent) {
         if (this.addressTxCallbacks[event as AddressTxEvent]) {
-          for (const tx of events.mempool || []) {
+          for (const tx of events[event as AddressTxEvent] || []) {
             this.addressTxCallbacks[event as AddressTxEvent]?.(address, tx);
           }
         }

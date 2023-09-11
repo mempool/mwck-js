@@ -5,7 +5,7 @@ import { AddressTracker } from './address';
 
 type AddressEvent = 'added' | 'confirmed' | 'removed' | 'changed';
 
-export class MempoolClient {
+export class MempoolWallet {
   private api: MempoolApi;
   private ws: MempoolSocket;
   private tracking: { [key: string]: AddressTracker } = {};

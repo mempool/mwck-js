@@ -64,6 +64,7 @@ export interface Utxo {
 }
 
 export interface AddressState {
+  address: string,
   transactions: Transaction[];
   balance: {
     total: number;

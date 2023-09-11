@@ -11,18 +11,20 @@ export enum AddressTxEvent {
   mempool = 'mempool',
   confirmed = 'confirmed',
   removed = 'removed',
-} 
+}
+
+export type WebsocketEvent = AddressTxEvent | 'disconnected' | 'connected';
 
 export class MempoolSocket {
   private options: MempoolOptions;
   private wsUrl: string;
 
-  private heartbeatTimer = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastResponseTime = 0;
   private websocketState: ConnectionState = ConnectionState.Offline;
   private ws: WebSocket | null = null;
-  private addressTxCallbacks: {
-    [event in AddressTxEvent]?: (address: string, tx: Transaction) => void;
+  private eventCallbacks: {
+    [event in WebsocketEvent]?: (address?: string, tx?: Transaction) => void;
   } = {};
   private outQueue: string[] = [];
 
@@ -33,7 +35,11 @@ export class MempoolSocket {
   }
 
   private async init(): Promise<WebSocket> {
-    if (!this.ws && this.websocketState === ConnectionState.Offline) {
+    if (this.websocketState === ConnectionState.Offline) {
+      if (this.ws) {
+        this.ws.close();
+        this.ws = null;
+      }
       return new Promise((resolve, reject) => {
         this.websocketState = ConnectionState.Connecting;
         const connectionTimeout = setTimeout(() => { reject('websocket connection timed out'); }, 5000);
@@ -70,8 +76,19 @@ export class MempoolSocket {
     }
   }
 
-  private async connect(): Promise<WebSocket> {
+  public isConnected(): boolean {
+    return this.websocketState === ConnectionState.Connected;
+  }
+
+  public async connect(): Promise<WebSocket> {
     return this.init();
+  }
+
+  public disconnect(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+    }
+    this.ws?.close();
   }
 
   private reconnect(): void {
@@ -98,14 +115,20 @@ export class MempoolSocket {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
     }
-    setInterval(() => { this.heartbeat(); }, 15000);
+    this.heartbeatTimer = setInterval(() => { this.heartbeat(); }, 15000);
     while (this.outQueue.length && this.ws) {
       this.ws.send(this.outQueue.shift() as string);
+    }
+    if (this.eventCallbacks.connected) {
+      this.eventCallbacks.connected();
     }
   }
 
   private handleClose(): void {
     this.websocketState = ConnectionState.Offline;
+    if (this.eventCallbacks.disconnected) {
+      this.eventCallbacks.disconnected();
+    }
   }
 
   private handleResponse(msg: any): void {
@@ -119,9 +142,9 @@ export class MempoolSocket {
   private handleMultiAddressTransactions(addressTransactions: AddressTransactionsResponse): void {
     for (const [address, events] of Object.entries(addressTransactions)) {
       for (const event in AddressTxEvent) {
-        if (this.addressTxCallbacks[event as AddressTxEvent]) {
+        if (this.eventCallbacks[event as AddressTxEvent]) {
           for (const tx of events[event as AddressTxEvent] || []) {
-            this.addressTxCallbacks[event as AddressTxEvent]?.(address, tx);
+            this.eventCallbacks[event as AddressTxEvent]?.(address, tx);
           }
         }
       }
@@ -136,16 +159,15 @@ export class MempoolSocket {
     }
   }
 
-  public on(event: AddressTxEvent, callback: (address: string, tx: Transaction) => void): void {
-    this.addressTxCallbacks[event] = callback;
+  public on(event: WebsocketEvent, callback: (address?: string, tx?: Transaction) => void): void {
+    this.eventCallbacks[event] = callback;
   }
 
-  public off(event: AddressTxEvent): void {
-    delete this.addressTxCallbacks[event];
+  public off(event: WebsocketEvent): void {
+    delete this.eventCallbacks[event];
   }
 
   public async trackAddresses(addresses: string[]): Promise<void> {
-    this.connect();
     this.send({ 'track-addresses': addresses });
   }
 }

@@ -39,6 +39,7 @@ export class AddressTracker {
    */
   public getState(): AddressState {
     return {
+      address: this.address,
       transactions: Array.from(this.transactions.values()),
       balance: {
         total: this.balance.total,
@@ -157,7 +158,7 @@ export class AddressTracker {
    * 
    * Drains any pending websocket events
    */
-  public onApiLoaded(): void {
+  public async onApiLoaded(): Promise<AddressState> {
     this.loadingApi = false;
     while (this.pending.length) {
       const event = this.pending.shift();
@@ -167,5 +168,15 @@ export class AddressTracker {
         this.removeTransaction(event.txid);
       }
     }
+    return this.getState();
+  }
+
+  /**
+   * Call on websocket disconnected
+   *
+   * Prepares for API transactions to be reloaded
+   */
+  public onWebsocketDisconnected(): void {
+    this.loadingApi = true;
   }
 }

@@ -3,7 +3,7 @@ import { AddressTxEvent, MempoolSocket } from './websocket';
 import { MempoolOptions, Transaction, AddressState, Utxo, WalletState } from './interfaces';
 import { AddressTracker } from './address';
 
-type WalletEvent = 'addressReady' | 'txAdded' | 'txConfirmed' | 'txRemoved' | 'txEvent';
+type WalletEvent = 'addressReady' | 'txAdded' | 'txConfirmed' | 'txRemoved' | 'txEvent' | 'wsConnected' | 'wsDisconnected';
 
 export class MempoolWallet {
   private api: MempoolApi;
@@ -36,6 +36,7 @@ export class MempoolWallet {
   }
 
   public destroy(): void {
+    this.ws.disconnect();
     this.ws.off(AddressTxEvent.mempool);
     this.ws.off(AddressTxEvent.confirmed);
     this.ws.off(AddressTxEvent.removed);
@@ -179,7 +180,20 @@ export class MempoolWallet {
     }
   }
 
-  public async fetchAddressBacklog(address: string) {
+  public untrackAddresses(addresses: string[]): void {
+    let anyDeleted = false;
+    for (const address of addresses) {
+      if (address in this.tracking) {
+        delete this.tracking[address];
+        anyDeleted = true;
+      }
+    }
+    if (anyDeleted) {
+      this.ws.trackAddresses(Object.keys(this.tracking));
+    }
+  }
+
+  private async fetchAddressBacklog(address: string) {
     const addressState = this.tracking[address]?.getState();
 
     // fetch history back to the block before the last known confirmed transaction
@@ -218,18 +232,5 @@ export class MempoolWallet {
 
     // notify observers that the address is synced and ready
     Object.values(this.observers.addressReady).forEach(observer => observer({address, state}));
-  }
-
-  public untrackAddresses(addresses: string[]): void {
-    let anyDeleted = false;
-    for (const address of addresses) {
-      if (address in this.tracking) {
-        delete this.tracking[address];
-        anyDeleted = true;
-      }
-    }
-    if (anyDeleted) {
-      this.ws.trackAddresses(Object.keys(this.tracking));
-    }
   }
 }

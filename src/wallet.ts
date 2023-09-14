@@ -209,9 +209,9 @@ export class MempoolWallet {
 
     for (const tx of initialTransactions) {
       if (tx.status?.confirmed) {
-        this.onTransactionUnconfirmed(address, tx);
-      } else {
         this.onTransactionConfirmed(address, tx);
+      } else {
+        this.onTransactionUnconfirmed(address, tx);
       }
     }
     const state = await this.tracking[address].onApiLoaded();

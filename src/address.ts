@@ -118,9 +118,9 @@ export class AddressTracker {
   /**
    * Undo the effect of a previously added transaction
    */
-  public removeTransaction(txid: string, live: boolean = false): void {
-    // delay processing 'live' transactions until we finished loading from the REST API
-    if (this.loadingApi && live) {
+  public removeTransaction(txid: string, fromWs = false): void {
+    // delay processing websocket transactions until we finished loading from the REST API
+    if (this.loadingApi && fromWs) {
       this.pending.push({ event: 'remove', txid });
       return;
     }

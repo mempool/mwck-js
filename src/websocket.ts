@@ -8,9 +8,9 @@ export enum ConnectionState {
 }
 
 export enum AddressTxEvent {
+  removed = 'removed',
   mempool = 'mempool',
   confirmed = 'confirmed',
-  removed = 'removed',
 }
 
 export type WebsocketEvent = AddressTxEvent | 'disconnected' | 'connected';

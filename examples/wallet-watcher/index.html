@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mempool Wallet Watcher</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="" />
+  <link rel="icon" href="favicon.png">
+  <style type="text/css">
+    h1 {
+      text-align: center;
+    }
+    .search {
+      display: flex;
+      margin: .5em auto;
+      justify-content: center;
+    }
+    .search button {
+      margin: 0 0.5em;
+    }
+    #addressTable.hidden {
+      display: none;
+    }
+    table {
+      width: 1000px;
+      max-width: 100%;
+      margin: 25px auto;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 18px;
+      text-align: left;
+    }
+    th, td {
+      white-space: nowrap;
+      padding: 12px 15px;
+      border: 1px solid #ddd;
+      text-align: right;
+    }
+    th:first-child, td:first-child {
+      text-align: left;
+    }
+    th {
+      background-color: #f2f2f2;
+    }
+    tr {
+      --status: #f2f2f2;
+    }
+    tr.credit {
+      --status: limegreen;
+    }
+    tr.debit {
+      --status: darkred;
+    }
+    tr.conf {
+      --status: orange;
+    }
+    tr:hover {
+      background-color: #f5f5f5;
+    }
+    @keyframes flash {
+      0% { background-color: transparent; }
+      10% { background-color: var(--status); }
+      100% { background-color: transparent; }
+    }
+
+    .flash-once {
+      animation: flash 0.5s ease-out 1;
+    }
+  </style>
+</head>
+<body>
+  <h1>👀👀 Mempool Wallet Watcher 👀👀</h1>
+
+  <div class="search">
+    <input type="text" id="addressInput" placeholder="Enter an address...">
+    <button id="watchButton">Watch!</button>
+  </div>
+
+  <div class="search">
+    <button id="saveButton">Save</button>
+    <button id="restoreButton">Restore</button>
+  </div>
+
+  <table id="addressTable" class="hidden">
+    <thead>
+      <tr>
+        <th>Address</th>
+        <th>Balance</th>
+        <th># Transactions</th>
+        <th># UTXOs</th>
+      </tr>
+    </thead>
+    <tbody>
+    </tbody>
+  </table>
+
+  <script src="mwck/index.umd.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

@@ -47,21 +47,21 @@ export class MempoolSocket {
         try {
           this.ws = this.ws = new WebSocket(this.wsUrl);
 
-          this.ws.on('error', console.error);
+          this.ws.onerror = console.error;
 
-          this.ws.on('close', () => {
+          this.ws.onclose = () => {
             this.handleClose();
-          })
+          };
 
-          this.ws.on('message', (msg: any) => {
+          this.ws.onmessage = (msg: any) => {
             this.handleResponse(msg);
-          });
+          };
 
-          this.ws.on('open', () => {
+          this.ws.onopen = () => {
             this.handleOpen();
             clearTimeout(connectionTimeout);
             resolve(this.ws as WebSocket);
-          });
+          };
         } catch (e) {
           reject(e);
         }
@@ -101,7 +101,7 @@ export class MempoolSocket {
   }
 
   private heartbeat(): void {
-    if (this.websocketState === ConnectionState.Offline || Date.now() - this.lastResponseTime > 30000) {
+    if (this.websocketState === ConnectionState.Offline || Date.now() - this.lastResponseTime > 180000) {
       this.websocketState = ConnectionState.Offline;
       this.reconnect();
     } else {
@@ -133,7 +133,7 @@ export class MempoolSocket {
 
   private handleResponse(msg: any): void {
     this.lastResponseTime = Date.now();
-    const result = JSON.parse(msg);
+    const result = JSON.parse(msg.data);
     if (result['multi-address-transactions']) {
       this.handleMultiAddressTransactions(result['multi-address-transactions']);
     }

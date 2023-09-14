@@ -1,18 +1,18 @@
-import { AddressState, Transaction, Utxo } from "./interfaces";
+import { AddressState, Transaction, Utxo, WalletState } from "./interfaces";
 
 /**
  * Utility class for keeping track of address state
  * via idempotent "add" and "remove" transaction events
  */
 export class AddressTracker {
-  private address: string;
-  private transactions: Map<string, Transaction>;
-  private balance: {
+  protected address: string;
+  protected transactions: Map<string, Transaction>;
+  protected balance: {
     total: number;
     confirmed: number;
     mempool: number;
   };
-  private utxos: Map<string, Utxo>;
+  protected utxos: Map<string, Utxo>;
 
   // Map of spent inputs for which we haven't yet seen 
   // the corresponding output.
@@ -34,12 +34,21 @@ export class AddressTracker {
     this.spent = new Set();
   }
 
+  public static from(state: AddressState): AddressTracker {
+    const tracker = new AddressTracker(state.address);
+    state.transactions.forEach(tx => tracker.transactions.set(tx.txid, tx));
+    state.utxos.forEach(utxo => tracker.utxos.set(`${utxo.txid}:${utxo.vout}`, utxo));
+    tracker.balance = state.balance;
+    return tracker;
+  }
+
   /**
    * Returns the current state of the address in a JSON-friendly format
    */
   public getState(): AddressState {
     return {
       address: this.address,
+      ready: !this.loadingApi,
       transactions: Array.from(this.transactions.values()),
       balance: {
         total: this.balance.total,
@@ -73,7 +82,7 @@ export class AddressTracker {
       this.removeTransaction(tx.txid);
     }
     for (const vin of tx.vin) {
-      if (vin.prevout.scriptpubkey_address === this.address) {
+      if (vin?.prevout?.scriptpubkey_address === this.address) {
         const key = `${vin.txid}:${vin.vout}`;
         const utxo = this.utxos.get(key);
         if (utxo) {
@@ -88,7 +97,7 @@ export class AddressTracker {
       }
     }
     for (const [index, vout] of tx.vout.entries()) {
-      if (vout.scriptpubkey_address === this.address) {
+      if (vout?.scriptpubkey_address === this.address) {
         const key = `${tx.txid}:${index}`;
         // skip outputs we've already seen spent
         if (!this.spent.delete(key)) {
@@ -122,7 +131,7 @@ export class AddressTracker {
     }
     this.transactions.delete(txid);
     for (const vin of tx.vin) {
-      if (vin.prevout.scriptpubkey_address === this.address) {
+      if (vin?.prevout?.scriptpubkey_address === this.address) {
         const key = `${vin.txid}:${vin.vout}`;
         const prevTx = this.transactions.get(vin.txid);
         if (prevTx) {
@@ -139,7 +148,7 @@ export class AddressTracker {
       }
     }
     for (const [index, vout] of tx.vout.entries()) {
-      if (vout.scriptpubkey_address === this.address) {
+      if (vout?.scriptpubkey_address === this.address) {
         const key = `${tx.txid}:${index}`;
         if (this.utxos.delete(key)) {
           // this output was still unspent
@@ -172,11 +181,9 @@ export class AddressTracker {
   }
 
   /**
-   * Call on websocket disconnected
-   *
-   * Prepares for API transactions to be reloaded
+   * Prepares for API transactions to be loaded
    */
-  public onWebsocketDisconnected(): void {
+  public onApiLoading(): void {
     this.loadingApi = true;
   }
 }

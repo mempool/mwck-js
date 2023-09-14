@@ -21,6 +21,8 @@ export class MempoolWallet {
     txConfirmed: {},
     txRemoved: {},
     txEvent: {},
+    wsConnected: {},
+    wsDisconnected: {},
   }
 
   constructor(options: MempoolOptions) {
@@ -71,12 +73,11 @@ export class MempoolWallet {
   }
 
   private onWebsocketDisconnected(): void {
-    for (const tracker of Object.values(this.tracking)) {
-      tracker.onWebsocketDisconnected();
-    }
+    Object.values(this.observers.wsDisconnected).forEach(observer => observer({}));
   }
 
   private async onWebsocketConnected(): Promise<void> {
+    Object.values(this.observers.wsConnected).forEach(observer => observer({}));
     this.ws.trackAddresses(Object.keys(this.tracking));
     for (const address of Object.keys(this.tracking)) {
       if (this.ws.isConnected()) {
@@ -136,6 +137,7 @@ export class MempoolWallet {
     })
     return {
       address: 'wallet',
+      ready: Object.values(addresses).reduce((ready, address) => ready && address.ready, true),
       addresses,
       balance,
       transactions: Array.from(transactions.values()),
@@ -143,12 +145,29 @@ export class MempoolWallet {
     };
   }
 
+  public async restore(state: WalletState): Promise<void> {
+    this.tracking = {};
+    for (const address of Object.keys(state.addresses)) {
+      const addressState = state.addresses[address];
+      this.tracking[address] = AddressTracker.from(addressState);
+    }
+
+    if (this.ws.isConnected()) {
+      this.ws.trackAddresses(Object.keys(this.tracking));
+      for (const address of Object.keys(state.addresses)) {
+        // resync to known good height
+        await this.fetchAddressBacklog(address);
+        this.tracking[address].onApiLoaded()
+        Object.values(this.observers.addressReady).forEach(observer => observer({address, state: state.addresses[address]}));
+      }
+    }
+  }
+
   public async trackAddresses(addresses: string[]): Promise<void> {
     addresses = addresses.filter(address => !(address in this.tracking));
     if (!addresses.length) {
       return;
     }
-    const promises: Promise<AddressState>[] = [];
     for (const address of addresses) {
       this.tracking[address] = new AddressTracker(address);
     }
@@ -161,15 +180,42 @@ export class MempoolWallet {
   }
 
   public async fetchAddressBacklog(address: string) {
-    const initialTransactions = await this.api.getAddressTransactions(address);
+    const addressState = this.tracking[address]?.getState();
+
+    // fetch history back to the block before the last known confirmed transaction
+    const lastConfirmed = (addressState?.transactions.slice().reverse() || []).find(tx => tx.status?.confirmed);
+    let lastTxid;
+    let lastHeight;
+    if (lastConfirmed) {
+      lastTxid = lastConfirmed.txid;
+      lastHeight = (lastConfirmed.status?.block_height || 1) - 1;
+    }
+    const fetchedTxids = new Set();
+    const initialTransactions = await this.api.getAddressTransactions(address, lastTxid, lastHeight);
+    for (const tx of initialTransactions) {
+      fetchedTxids.add(tx.txid);
+    }
+
+    // Clear transactions that were removed since our last good state
+    for (const tx of addressState?.transactions.slice().reverse() || []) {
+      // Only check as far back as our fresh data extends
+      if (lastHeight && tx.status?.block_height && tx.status?.block_height < lastHeight) {
+        break;
+      }
+      if (!fetchedTxids.has(tx.txid)) {
+        this.onTransactionRemoved(address, tx);
+      }
+    }
+
     for (const tx of initialTransactions) {
       if (tx.status?.confirmed) {
         this.onTransactionUnconfirmed(address, tx);
       } else {
-        this.onTransactionUnconfirmed(address, tx);
+        this.onTransactionConfirmed(address, tx);
       }
     }
     const state = await this.tracking[address].onApiLoaded();
+
     // notify observers that the address is synced and ready
     Object.values(this.observers.addressReady).forEach(observer => observer({address, state}));
   }

@@ -13,7 +13,7 @@ export class MempoolWallet {
   private observerId = 0;
   private observers: {
     [event: string]: {
-      [oid in number]: (args: any) => void
+      [oid in number]: (args: unknown) => void
     }
   } = {
     addressReady: {},
@@ -43,18 +43,18 @@ export class MempoolWallet {
     this.ws.off('connected');
   }
 
-  private onTransactionUnconfirmed(address?: string, tx?: Transaction, live: boolean = false): void {
+  private onTransactionUnconfirmed(address?: string, tx?: Transaction, fromWs = false): void {
     if (tx && address && address in this.tracking) {
-      this.tracking[address].addTransaction(tx, live);
+      this.tracking[address].addTransaction(tx, fromWs);
       Object.values(this.observers.txAdded).forEach(observer => observer({address, tx}));
       Object.values(this.observers.txEvent).forEach(observer => observer({event: 'added', address, tx}));
     }
   }
 
-  private onTransactionConfirmed(address?: string, tx?: Transaction, live: boolean = false): void {
+  private onTransactionConfirmed(address?: string, tx?: Transaction, fromWs = false): void {
     if (tx && address && address in this.tracking) {
       const isKnown = this.tracking[address].hasTransaction(tx.txid);
-      this.tracking[address].addTransaction(tx, live);
+      this.tracking[address].addTransaction(tx, fromWs);
       if (!isKnown) {
         Object.values(this.observers.txAdded).forEach(observer => observer({address, tx}));
         Object.values(this.observers.txEvent).forEach(observer => observer({event: 'added', address, tx}));
@@ -64,9 +64,9 @@ export class MempoolWallet {
     }
   }
 
-  private onTransactionRemoved(address?: string, tx?: Transaction, live: boolean = false): void {
+  private onTransactionRemoved(address?: string, tx?: Transaction, fromWs = false): void {
     if (tx && address && address in this.tracking) {
-      this.tracking[address].removeTransaction(tx.txid, live);
+      this.tracking[address].removeTransaction(tx.txid, fromWs);
       Object.values(this.observers.txRemoved).forEach(observer => observer({address, tx}));
       Object.values(this.observers.txEvent).forEach(observer => observer({event: 'removed', address, tx}));
     }
@@ -99,7 +99,7 @@ export class MempoolWallet {
 
   // register a handler for an event type
   // returns an unsubscribe function
-  public subscribe(event: WalletEvent, fn: (args: any) => void): () => void {
+  public subscribe(event: WalletEvent, fn: (args: unknown) => void): () => void {
     const oid = this.observerId++;
     this.observers[event][oid] = fn;
     return () => { delete this.observers[event][oid]; };

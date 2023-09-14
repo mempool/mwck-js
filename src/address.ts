@@ -1,4 +1,4 @@
-import { AddressState, Transaction, Utxo, WalletState } from "./interfaces";
+import { AddressState, Transaction, Utxo } from "./interfaces";
 
 /**
  * Utility class for keeping track of address state
@@ -19,7 +19,7 @@ export class AddressTracker {
   private spent: Set<string>;
 
   // While loadingApi=true, websocket events are withheld in a pending queue
-  private loadingApi: boolean = true;
+  private loadingApi = true;
   private pending: { event: 'add' | 'remove', tx?: Transaction, txid?: string }[] = [];
 
   constructor(address: string) {
@@ -69,7 +69,7 @@ export class AddressTracker {
    * Idempotent, but the most recent confirmation status applies,
    * so ordering matters
    */
-  public addTransaction(tx: Transaction, fromWs: boolean = false): void {
+  public addTransaction(tx: Transaction, fromWs = false): void {
     // delay websocket events until we finished processing transactions from the REST API
     if (this.loadingApi && fromWs) {
       this.pending.push({ event: 'add', tx });

@@ -3,18 +3,25 @@
   "version": "0.0.1",
   "description": "mempool.space wallet connector kit",
   "main": "dist/index.js",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
+  "module": "dist/index.esm.js",
+  "browser": "dist/index.umd.js",
+  "types": "dist/types/index.d.ts",
   "scripts": {
     "tsc": "tsc",
-    "build": "npm run tsc",
+    "build": "npm run tsc && webpack --mode production",
     "start": "node dist/index.js"
   },
   "license": "GNU Affero General Public License v3.0",
   "devDependencies": {
     "@types/ws": "^8.5.5",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
+    "@typescript-eslint/parser": "^6.7.0",
     "eslint": "^8.49.0",
-    "typescript": "^5.2.2"
+    "eslint-config-prettier": "^9.0.0",
+    "ts-loader": "^9.4.4",
+    "typescript": "^5.2.2",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.4"
   },
   "dependencies": {
     "cross-fetch": "^4.0.0",

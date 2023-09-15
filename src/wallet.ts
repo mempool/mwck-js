@@ -79,6 +79,21 @@ export class MempoolWallet {
 
   private async onWebsocketConnected(): Promise<void> {
     Object.values(this.observers.wsConnected).forEach(observer => observer({}));
+    await this.resync();
+  }
+
+  public async connect(): Promise<void> {
+    await this.ws.connect();
+  }
+
+  public disconnect(): void {
+    this.ws.disconnect();
+  }
+
+  public async resync(): Promise<void> {
+    for (const tracker of Object.values(this.tracking)) {
+      tracker.onApiLoading();
+    }
     this.ws.trackAddresses(Object.keys(this.tracking));
     for (const address of Object.keys(this.tracking)) {
       if (this.ws.isConnected()) {
@@ -88,14 +103,6 @@ export class MempoolWallet {
         return;
       }
     }
-  }
-
-  public async connect(): Promise<void> {
-    await this.ws.connect();
-  }
-
-  public disconnect(): void {
-    this.ws.disconnect();
   }
 
   // register a handler for an event type
@@ -152,16 +159,7 @@ export class MempoolWallet {
       const addressState = state.addresses[address];
       this.tracking[address] = AddressTracker.from(addressState);
     }
-
-    if (this.ws.isConnected()) {
-      this.ws.trackAddresses(Object.keys(this.tracking));
-      for (const address of Object.keys(state.addresses)) {
-        // resync to known good height
-        await this.fetchAddressBacklog(address);
-        this.tracking[address].onApiLoaded()
-        Object.values(this.observers.addressReady).forEach(observer => observer({address, state: state.addresses[address]}));
-      }
-    }
+    await this.resync();
   }
 
   public async trackAddresses(addresses: string[]): Promise<void> {
@@ -196,7 +194,7 @@ export class MempoolWallet {
   private async fetchAddressBacklog(address: string) {
     const addressState = this.tracking[address]?.getState();
 
-    // fetch history back to the block before the last known confirmed transaction
+    // fetch history back one block beyond the last known confirmed transaction
     const lastConfirmed = (addressState?.transactions.slice().reverse() || []).find(tx => tx.status?.confirmed);
     let lastTxid;
     let lastHeight;

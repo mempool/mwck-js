@@ -2,9 +2,9 @@ import WebSocket from 'isomorphic-ws';
 import { MempoolOptions, addDefaultOptions, Transaction, AddressTransactionsResponse } from './interfaces';
 
 export enum ConnectionState {
-  Connected,
-  Connecting,
-  Offline
+  connected,
+  connecting,
+  offline
 }
 
 export enum AddressTxEvent {
@@ -13,7 +13,7 @@ export enum AddressTxEvent {
   confirmed = 'confirmed',
 }
 
-export type WebsocketEvent = AddressTxEvent | 'disconnected' | 'connected';
+export type WebsocketEvent = AddressTxEvent | 'disconnected' | 'connected' | 'error';
 
 export class MempoolSocket {
   private options: MempoolOptions;
@@ -21,10 +21,10 @@ export class MempoolSocket {
 
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastResponseTime = 0;
-  private websocketState: ConnectionState = ConnectionState.Offline;
+  private websocketState: ConnectionState = ConnectionState.offline;
   private ws: WebSocket | null = null;
   private eventCallbacks: {
-    [event in WebsocketEvent]?: (address?: string, tx?: Transaction) => void;
+    [event in WebsocketEvent]?: (args: { address?: string, tx?: Transaction, error?: any }) => void;
   } = {};
   private outQueue: string[] = [];
 
@@ -35,49 +35,129 @@ export class MempoolSocket {
   }
 
   private async init(): Promise<WebSocket> {
-    if (this.websocketState === ConnectionState.Offline) {
-      if (this.ws) {
-        this.ws.close();
-        this.ws = null;
-      }
-      return new Promise((resolve, reject) => {
-        this.websocketState = ConnectionState.Connecting;
-        const connectionTimeout = setTimeout(() => { reject('websocket connection timed out'); }, 5000);
-
-        try {
-          this.ws = this.ws = new WebSocket(this.wsUrl);
-
-          this.ws.onerror = console.error;
-
-          this.ws.onclose = () => {
-            this.handleClose();
-          };
-
-          this.ws.onmessage = (msg: any) => {
-            this.handleResponse(msg);
-          };
-
-          this.ws.onopen = () => {
-            this.handleOpen();
-            clearTimeout(connectionTimeout);
-            resolve(this.ws as WebSocket);
-          };
-        } catch (e) {
-          reject(e);
+    while (!this.ws || this.websocketState !== ConnectionState.connected) {
+      if (this.websocketState === ConnectionState.offline) {
+        if (this.ws) {
+          this.ws.close();
+          this.ws = null;
         }
-      });
-    } else if (this.ws && this.websocketState === ConnectionState.Connected) {
-      return Promise.resolve(this.ws);
+        return new Promise((resolve, reject) => {
+          this.websocketState = ConnectionState.connecting;
+          const connectionTimeout = setTimeout(() => { reject('websocket connection timed out'); }, 5000);
+
+          try {
+            this.ws = new WebSocket(this.wsUrl);
+
+            this.ws.onerror = (err) => {
+              this.websocketState = ConnectionState.offline;
+              if (this.eventCallbacks.error) {
+                this.eventCallbacks['error']({ error: err });
+              }
+            }
+
+            this.ws.onclose = () => {
+              this.handleClose();
+            };
+
+            this.ws.onmessage = (msg: any) => {
+              this.handleResponse(msg);
+            };
+
+            this.ws.onopen = () => {
+              this.handleOpen();
+              clearTimeout(connectionTimeout);
+              resolve(this.ws as WebSocket);
+            };
+          } catch (e) {
+            reject(e);
+          }
+        });
+      } else {
+        // try again in 5 seconds
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5000);
+        });
+      }
+    }
+    return this.ws;
+  }
+
+  private reconnect(): void {
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.close();
+      this.ws = null;
+    }
+    this.connect();
+  }
+
+  private heartbeat(): void {
+    if (this.websocketState === ConnectionState.offline || Date.now() - this.lastResponseTime > 180000) {
+      this.websocketState = ConnectionState.offline;
+      this.reconnect();
     } else {
-      await new Promise((resolve) => {
-        setTimeout(resolve, 2000);
-      });
-      return this.init();
+      this.send({ action: 'ping' });
+    }
+  }
+
+  private handleOpen(): void {
+    this.websocketState = ConnectionState.connected;
+    this.lastResponseTime = Date.now();
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+    }
+    this.heartbeatTimer = setInterval(() => { this.heartbeat(); }, 15000);
+    while (this.outQueue.length && this.ws) {
+      this.ws.send(this.outQueue.shift() as string);
+    }
+    if (this.eventCallbacks.connected) {
+      this.eventCallbacks.connected({});
+    }
+  }
+
+  private handleClose(): void {
+    this.websocketState = ConnectionState.offline;
+    if (this.eventCallbacks.disconnected) {
+      this.eventCallbacks.disconnected({});
+    }
+  }
+
+  private handleResponse(msg: any): void {
+    this.lastResponseTime = Date.now();
+    try {
+      const result = JSON.parse(msg.data);
+      if (result['multi-address-transactions']) {
+        this.handleMultiAddressTransactions(result['multi-address-transactions']);
+      }
+    } catch (err) {
+      if (this.eventCallbacks.error) {
+        this.eventCallbacks['error']({ error: err });
+      }
+    }
+  }
+
+  private handleMultiAddressTransactions(addressTransactions: AddressTransactionsResponse): void {
+    for (const [address, events] of Object.entries(addressTransactions)) {
+      for (const event in AddressTxEvent) {
+        if (this.eventCallbacks[event as AddressTxEvent]) {
+          for (const tx of events[event as AddressTxEvent] || []) {
+            this.eventCallbacks[event as AddressTxEvent]?.({address, tx});
+          }
+        }
+      }
+    }
+  }
+
+  private send(data: any): void {
+    if (this.ws && this.websocketState === ConnectionState.connected) {
+      this.ws.send(JSON.stringify(data));
+    } else {
+      this.outQueue.push(JSON.stringify(data));
     }
   }
 
   public isConnected(): boolean {
-    return this.websocketState === ConnectionState.Connected;
+    return this.websocketState === ConnectionState.connected;
   }
 
   public async connect(): Promise<WebSocket> {
@@ -91,75 +171,7 @@ export class MempoolSocket {
     this.ws?.close();
   }
 
-  private reconnect(): void {
-    if (this.ws) {
-      this.ws.onclose = null;
-      this.ws.close();
-      this.ws = null;
-    }
-    this.connect();
-  }
-
-  private heartbeat(): void {
-    if (this.websocketState === ConnectionState.Offline || Date.now() - this.lastResponseTime > 180000) {
-      this.websocketState = ConnectionState.Offline;
-      this.reconnect();
-    } else {
-      this.send({ action: 'ping' });
-    }
-  }
-
-  private handleOpen(): void {
-    this.websocketState = ConnectionState.Connected;
-    this.lastResponseTime = Date.now();
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-    }
-    this.heartbeatTimer = setInterval(() => { this.heartbeat(); }, 15000);
-    while (this.outQueue.length && this.ws) {
-      this.ws.send(this.outQueue.shift() as string);
-    }
-    if (this.eventCallbacks.connected) {
-      this.eventCallbacks.connected();
-    }
-  }
-
-  private handleClose(): void {
-    this.websocketState = ConnectionState.Offline;
-    if (this.eventCallbacks.disconnected) {
-      this.eventCallbacks.disconnected();
-    }
-  }
-
-  private handleResponse(msg: any): void {
-    this.lastResponseTime = Date.now();
-    const result = JSON.parse(msg.data);
-    if (result['multi-address-transactions']) {
-      this.handleMultiAddressTransactions(result['multi-address-transactions']);
-    }
-  }
-
-  private handleMultiAddressTransactions(addressTransactions: AddressTransactionsResponse): void {
-    for (const [address, events] of Object.entries(addressTransactions)) {
-      for (const event in AddressTxEvent) {
-        if (this.eventCallbacks[event as AddressTxEvent]) {
-          for (const tx of events[event as AddressTxEvent] || []) {
-            this.eventCallbacks[event as AddressTxEvent]?.(address, tx);
-          }
-        }
-      }
-    }
-  }
-
-  private send(data: any): void {
-    if (this.ws && this.websocketState === ConnectionState.Connected) {
-      this.ws.send(JSON.stringify(data));
-    } else {
-      this.outQueue.push(JSON.stringify(data));
-    }
-  }
-
-  public on(event: WebsocketEvent, callback: (address?: string, tx?: Transaction) => void): void {
+  public on(event: WebsocketEvent, callback: (args: {address?: string, tx?: Transaction, error?: any}) => void): void {
     this.eventCallbacks[event] = callback;
   }
 

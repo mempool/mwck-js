@@ -1,5 +1,7 @@
 # Mempool Wallet Connector Kit
 
+*(**work in progress** - relies on the multi-address tracking feature from https://github.com/mempool/mempool/pull/4137)*
+
 A lightweight utility library for efficiently syncing Bitcoin wallet history from an instance of The Mempool Open Source Project® backend.
 
 Mwck uses websocket push notifications to discover new address transaction events, eliminating the need to constantly poll the REST API.

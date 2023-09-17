@@ -24,9 +24,9 @@ export class MempoolApi {
    */
   public async getAddressTransactions(address: string, untilTxid?: string, untilHeight?: number): Promise<Transaction[]> {
     let allTxs: Transaction[] = [];
-    let lastTxid = null;
+    let lastTxid: string | null = null;
     let done = false;
-    let limitRequests = untilTxid || (untilHeight != null);
+    const limitRequests = untilTxid || (untilHeight != null);
     let foundTxid = untilTxid == null;
     let foundHeight = untilHeight == null;
     while (!done && !(limitRequests && foundTxid && foundHeight)) {
@@ -36,12 +36,10 @@ export class MempoolApi {
         if (!foundTxid && txs.findIndex(tx => tx.txid === untilTxid) >= 0) {
           foundTxid = true;
         }
-        if (untilHeight
-          && !foundHeight
-          && txs.length
-          && txs[txs.length - 1].status?.confirmed
-          && (txs[txs.length - 1]?.status?.block_height || Infinity) < untilHeight
-        ) {
+        const lastTx = txs.slice(-1)[0];
+        const { confirmed, block_height } = lastTx?.status || {};
+
+        if (!foundHeight && txs.length && confirmed && block_height != null && block_height < untilHeight!) {
           foundHeight = true;
         }
       }

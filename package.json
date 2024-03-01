@@ -1,6 +1,6 @@
 {
   "name": "mwck",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "mempool.space wallet connector kit",
   "main": "dist/index.js",
   "module": "dist/index.esm.js",

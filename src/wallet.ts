@@ -6,9 +6,17 @@ import { AddressTracker } from './address';
 const walletEventTypes = ['addressReady', 'txAdded', 'txConfirmed', 'txRemoved', 'txEvent', 'wsConnected', 'wsDisconnected', 'wsError'] as const;
 type WalletEvent = typeof walletEventTypes[number];
 
+export interface SubscriptionEvent {
+  event?: 'added' | 'confirmed' | 'removed';
+  address?: string;
+  tx?: Transaction;
+  state?: AddressState;
+  err?: any;
+}
+
 type ObserverDict = {
   [event in WalletEvent]: {
-    [oid: number]: (args: unknown) => void;
+    [oid: number]: (args: SubscriptionEvent) => void;
   };
 };
 
@@ -42,7 +50,7 @@ export class MempoolWallet {
     this.ws.off('error');
   }
 
-  private notifyObservers(event: WalletEvent, args: unknown): void {
+  private notifyObservers(event: WalletEvent, args: SubscriptionEvent): void {
     Object.values(this.observers[event]).forEach(observer => observer(args));
   }
 
@@ -89,7 +97,7 @@ export class MempoolWallet {
     await this.resync();
   }
 
-  private async fetchAddressBacklog(address: string) {
+  private async fetchAddressBacklog(address: string, lookBack = 1) {
     const addressState = this.tracking[address]?.getState();
 
     // fetch history back one block beyond the last known confirmed transaction
@@ -98,7 +106,7 @@ export class MempoolWallet {
     let lastHeight;
     if (lastConfirmed) {
       lastTxid = lastConfirmed.txid;
-      lastHeight = (lastConfirmed.status?.block_height || 1) - 1;
+      lastHeight = (lastConfirmed.status?.block_height || 1) - lookBack;
     }
     const fetchedTxids = new Set();
     const initialTransactions = await this.api.getAddressTransactions(address, lastTxid, lastHeight);
@@ -155,7 +163,7 @@ export class MempoolWallet {
 
   // register a handler for an event type
   // returns an unsubscribe function
-  public subscribe(event: WalletEvent, fn: (args: unknown) => void): () => void {
+  public subscribe(event: WalletEvent, fn: (args: SubscriptionEvent) => void): () => void {
     const oid = this.observerId++;
     this.observers[event][oid] = fn;
     return () => { delete this.observers[event][oid]; };

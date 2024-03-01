@@ -9,7 +9,7 @@ Mwck uses websocket push notifications to discover new address transaction event
 ## Quick start
 
 ```typescript
-const mwck = require('./mwck/index.js');
+const mwck = require('mwck');
 const wallet = new mwck.MempoolWallet({
   hostname: 'mempool.space'
 });
